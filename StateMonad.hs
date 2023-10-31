@@ -26,17 +26,17 @@ be building off this module in many ways the rest of the semester.
 module StateMonad where
 
 import Control.Monad (ap, liftM)
-import qualified Data.IORef as IO
+import Data.IORef qualified as IO
 import Data.Map (Map)
-import qualified Data.Map as Map
-import qualified Data.Maybe as Maybe
+import Data.Map qualified as Map
+import Data.Maybe qualified as Maybe
 {-
 This module depends on an auxiliary module [State](State.html) that we will define later.
 We'll qualify imports from this module with `S.` so that you can see where they
 come from.
 -}
 
-import qualified State as S
+import State qualified as S
 
 {-
 State Transformations
@@ -142,6 +142,7 @@ above.
 -}
 
 -- >>> countI tree
+-- 3
 
 {-
 At this point, you might be wondering what the point of this all is.
@@ -170,6 +171,7 @@ labelIO t = do
   aux t
 
 -- >>> labelIO tree
+-- Branch (Branch (Leaf ('a',0)) (Leaf ('b',1))) (Leaf ('c',2))
 
 {-
 We can also implement this operation with purely functional code by taking
@@ -182,7 +184,11 @@ label1 :: Tree a -> Tree (a, Int)
 label1 t = fst (aux t 0)
   where
     aux :: Tree a -> Store -> (Tree (a, Int), Store)
-    aux = undefined
+    aux (Leaf x) = \cnt -> (Leaf (x, cnt), cnt + 1)
+    aux (Branch t1 t2) = \cnt ->
+      let (t1', c) = aux t1 cnt
+          (t2', c') = aux t2 c
+       in (Branch t1' t2', c')
 
 {-
 Once you have completed the implementation, again test it on the sample tree
@@ -190,6 +196,7 @@ above.
 -}
 
 -- >>> label1 tree
+-- Branch (Branch (Leaf ('a',0)) (Leaf ('b',1))) (Leaf ('c',2))
 
 {-
 Your result should be:
@@ -261,11 +268,14 @@ of the types below.
 
 returnST :: a -> ST a
 -- returnST :: a -> Store -> (a, Store)
-returnST = undefined
+returnST x = \s -> (x, s)
 
 bindST :: ST a -> (a -> ST b) -> ST b
 -- bindST :: (Store -> (a,Store)) -> (a -> (Store -> (b, Store))) -> (Store -> (b, Store))
-bindST st f = undefined
+bindST st f = \s ->
+  let (x, s') = st s
+      st' = f x
+   in st' s'
 
 {-
 That is, `returnST` converts a value into a state transformer by simply
@@ -377,7 +387,8 @@ getST2 :: ST2 Store
 getST2 = S $ \s -> (s, s)
 
 putST2 :: Store -> ST2 ()
-putST2 s = S $ \_ -> ((), s)
+-- putST2 s = S $ \_ -> ((), s)
+putST2 s = S $ const ((), s)
 
 {-
 These functions are additional useful operations for the `ST2` type. (The fact
@@ -388,8 +399,14 @@ straightforward to define our tree labeling function.
 -}
 
 mlabel :: Tree a -> ST2 (Tree (a, Int))
-mlabel (Leaf x) = undefined -- use `getST2` and `putST2` here
-mlabel (Branch t1 t2) = undefined
+mlabel (Leaf x) = do
+  n <- getST2
+  putST2 (n + 1)
+  return (Leaf (x, n))
+mlabel (Branch t1 t2) = do
+  t1' <- mlabel t1
+  t2' <- mlabel t2
+  return (Branch t1' t2')
 
 {-
 Try to implement `mlabel` both with and without `do`-notation.
@@ -404,13 +421,14 @@ the initial state, and then discarding the final state:
 -}
 
 label :: Tree a -> Tree (a, Int)
-label t = undefined
+label t = fst (runState (mlabel t) 0)
 
 {-
 For example, `label tree` gives our expected result:
 -}
 
 -- >>> label tree
+-- Branch (Branch (Leaf ('a',0)) (Leaf ('b',1))) (Leaf ('c',2))
 
 {-
 A Generic State Transformer
@@ -428,7 +446,7 @@ type Store = (Int, Int)
 and so on.
 
 Therefore, we would like to write reusable code that will work with
-*any* type of store.
+\*any* type of store.
 
 The file [State](State.html) contains a generic library for that purpose.
 You should switch to that file now and read it before moving on.
@@ -510,14 +528,14 @@ Similarly, we want an action that updates the frequency of a given
 element `k`.
 -}
 
-updFreqM :: Ord a => a -> S.State (MySt a) ()
+updFreqM :: (Ord a) => a -> S.State (MySt a) ()
 updFreqM = undefined
 
 {-
 And with these two, we are done
 -}
 
-mlabelM :: Ord a => Tree a -> S.State (MySt a) (Tree (a, Int))
+mlabelM :: (Ord a) => Tree a -> S.State (MySt a) (Tree (a, Int))
 mlabelM (Leaf x) = do
   c <- updateIndexM
   updFreqM x
