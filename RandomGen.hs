@@ -13,9 +13,9 @@ module RandomGen where
 -- It also might be tempting to import Test.QuickCheck, but do not import anything
 -- from quickcheck for this exercise.
 import Control.Monad
-import qualified State as S
+import State qualified as S
 import System.Random (StdGen)
-import qualified System.Random as Random (mkStdGen, randomIO, uniform, uniformR)
+import System.Random qualified as Random (mkStdGen, randomIO, uniform, uniformR)
 
 {-
 Random Generation
@@ -80,10 +80,13 @@ get different numbers from these three calls.
 -}
 
 -- >>> testRandom 1
+-- -8728299723972136512
 
 -- >>> testRandom 2
+-- 7133861895013252414
 
 -- >>> testRandom 3
+-- 5757771102651567923
 
 {-
 But we can also produce several different random `Int`s by using the
@@ -97,13 +100,16 @@ output of one call to `Random.uniform` as the input to the next.
 (int3 :: Int, _) = uniformInt stdgen2
 
 -- >>> int1
+-- -8728299723972136512
 
 -- >>> int2
+-- 1508247628499543321
 {-
 >
 -}
 
 -- >>> int3
+-- 4708425006071971359
 
 {-
 If we'd like to constrain that integer to a specific range `(0, n)`
@@ -118,13 +124,16 @@ These tests should all produce random integers between 0 and 20.
 -}
 
 testBounded :: Int -> Int
-testBounded = fst . nextBounded 20 . mkStdGen
+testBounded i = fst (nextBounded 20 (mkStdGen i))
 
 -- >>> testBounded 1
+-- 8
 
 -- >>> testBounded 2
+-- 14
 
 -- >>> testBounded 3
+-- 3
 
 {-
 QuickCheck is defined by a class of types that can construct random
@@ -149,7 +158,7 @@ instance Arb1 Bool where
 With this class, we can also generalize our "testing" function.
 -}
 
-testArb1 :: Arb1 a => Int -> a
+testArb1 :: (Arb1 a) => Int -> a
 testArb1 = fst . arb1 . mkStdGen
 
 {-
@@ -170,12 +179,17 @@ components in the pair. If both calls to `arb1` above used `s`, then we'd get
 the same number in both components.
 -}
 
+-- >>> testArb1 4 :: Bool
+-- True
+
 -- >>> testArb1 1 :: (Int, Int)
+-- (-8728299723972136512,1508247628499543321)
 {-
 >
 -}
 
 -- >>> testArb1 2 :: (Int, Int)
+-- (7133861895013252414,-3695387158857804490)
 
 {-
 How about for the `Maybe` type? Use the `arb1` instance for the `Bool` type
@@ -185,7 +199,16 @@ should return `Nothing` or `Just a`, where the `a` also comes from `arb1`.
 
 instance (Arb1 a) => Arb1 (Maybe a) where
   arb1 :: StdGen -> (Maybe a, StdGen)
-  arb1 s = undefined
+  arb1 s =
+    let (b, s1) = arb1 s
+     in if b
+          then
+            let (a, s2) = arb1 s1
+             in (Just a, s2)
+          else (Nothing, s1)
+
+-- >>> testArb1 4 :: (Maybe Int)
+-- Just (-7813227110773096510)
 
 {-
 And for lists? Give this one a try!  Although we don't have QCs combinators
@@ -194,14 +217,26 @@ is generated so that you get reasonable lists.
 
 -}
 
-instance Arb1 a => Arb1 [a] where
-  arb1 s = undefined
+instance (Arb1 a) => Arb1 [a] where
+  arb1 :: (Arb1 a) => StdGen -> ([a], StdGen)
+  arb1 = arbList 5
+    where
+      arbList depth s =
+        if depth > 0
+          then
+            let (x :: a, s1) = arb1 s
+                (xs :: [a], s2) = arbList (depth - 1) s1
+             in (x : xs, s2)
+          else ([], s)
 
 -- >>> testArb1 1 :: [Int]
+-- [-8728299723972136512,1508247628499543321,4708425006071971359,3295616113604390420,-6470300321862196297]
 
 -- >>> testArb1 2 :: [Int]
+-- [7133861895013252414,-3695387158857804490,9055518795393354129,6913472612286637009,9000619708019330313]
 
 -- >>> testArb1 3 :: [Int]
+-- [5757771102651567923,-4340067171599948441,3693384238643783450,3754176236000241207,7555297385651819641]
 
 {-
 Ouch, there's a lot of state passing going on here.
@@ -257,13 +292,15 @@ What if we want a bounded generator? See if you can define one without using `Ra
 -}
 
 bounded :: Int -> Gen Int
-bounded b = undefined
+bounded b = do
+  n <- arb
+  return (n `mod` b)
 
 {-
 Now define a `sample` function, which generates and prints 10 random values.
 -}
 
-sample :: Show a => Gen a -> IO ()
+sample :: (Show a) => Gen a -> IO ()
 sample gen = do
   seed <- (Random.randomIO :: IO Int) -- get a seed from the global random number generator
   -- hidden in the IO monad
@@ -289,6 +326,7 @@ monad help that definition? How does it compare to the version above?
 -}
 
 instance (Arb a, Arb b) => Arb (a, b) where
+  arb :: (Arb a, Arb b) => Gen (a, b)
   arb = undefined
 
 {-
@@ -311,5 +349,5 @@ frequency :: [(Int, Gen a)] -> Gen a
 frequency = undefined
 
 instance (Arb a) => Arb [a] where
-  arb :: Arb a => Gen [a]
+  arb :: (Arb a) => Gen [a]
   arb = frequency [(1, return []), (3, (:) <$> arb <*> arb)]
